@@ -1,10 +1,10 @@
-name: POGO META v5.3 Easy Report Deploy
+name: POGO META v5.4 Korean Move + Search Deploy
 
 on:
   push:
     branches: [main]
     paths:
-      - 'POGO_META_CHECKER_v5_3_mobile.zip'
+      - 'POGO_META_CHECKER_v5_4_mobile.zip'
       - '.github/workflows/mobile-deploy.yml'
   workflow_dispatch:
   # Cheap daily source-change check, not a daily full Pokémon recalculation.
@@ -32,7 +32,7 @@ jobs:
       - name: Extract v5 source
         run: |
           mkdir -p release
-          unzip -q POGO_META_CHECKER_v5_3_mobile.zip -d release
+          unzip -q POGO_META_CHECKER_v5_4_mobile.zip -d release
           test -f release/index.html
           test -f release/scripts/v5_sync.py
       - uses: actions/setup-python@v5
@@ -46,6 +46,7 @@ jobs:
           node tests/test_v5_delta.js
           node tests/test_v5_iv.js
           node tests/test_v5_easy.js
+          node tests/test_v5_ko.js
       - name: Restore last published validated data
         run: |
           mkdir -p release/data
@@ -54,6 +55,11 @@ jobs:
               "https://a01023582660-web.github.io/pogo-meta-checker/data/$file" \
               -o "release/data/$file" || rm -f "release/data/$file"
           done
+      - name: Restore previous Korean move labels if available
+        run: |
+          curl --silent --fail --max-time 15 \
+            'https://a01023582660-web.github.io/pogo-meta-checker/data/move-ko.js' \
+            -o release/data/move-ko.js || true
       - uses: actions/cache/restore@v4
         with:
           path: release/.source-cache
@@ -78,11 +84,21 @@ jobs:
         with:
           path: release/.source-cache
           key: pogo-v5-raw-${{ github.run_id }}
+      - name: Build Korean GO move labels when relevant data changes
+        working-directory: release
+        env:
+          SOURCE_CHANGED: ${{ steps.monitor.outputs.cache_new }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" && "${SOURCE_CHANGED}" != "true" && -s data/move-ko.js ]]; then
+            echo "UNCHANGED: keep existing Korean move labels; skip name-table downloads."
+          else
+            python scripts/build_korean_moves.py
+          fi
       - name: Stage public PWA with small metadata manifest
         run: |
           mkdir -p public/data public/icons public/licenses
           cp release/index.html release/app.js release/style.css release/sw.js release/manifest.webmanifest public/
-          cp release/data/starter.js public/data/
+          cp release/data/starter.js release/data/move-ko.js public/data/
           cp release/icons/icon-192.png release/icons/icon-512.png public/icons/
           cp release/licenses/PVPoke-LICENSE.txt public/licenses/
           for file in catalog.json meta-index.json changes.json patch.json; do
