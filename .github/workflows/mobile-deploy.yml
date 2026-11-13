@@ -1,10 +1,10 @@
-name: POGO META v5.2 Standard Report Deploy
+name: POGO META v5.3 Easy Report Deploy
 
 on:
   push:
     branches: [main]
     paths:
-      - 'POGO_META_CHECKER_v5_2_mobile.zip'
+      - 'POGO_META_CHECKER_v5_3_mobile.zip'
       - '.github/workflows/mobile-deploy.yml'
   workflow_dispatch:
   # Cheap daily source-change check, not a daily full Pokémon recalculation.
@@ -32,7 +32,7 @@ jobs:
       - name: Extract v5 source
         run: |
           mkdir -p release
-          unzip -q POGO_META_CHECKER_v5_2_mobile.zip -d release
+          unzip -q POGO_META_CHECKER_v5_3_mobile.zip -d release
           test -f release/index.html
           test -f release/scripts/v5_sync.py
       - uses: actions/setup-python@v5
@@ -45,6 +45,7 @@ jobs:
           node tests/test_app.js
           node tests/test_v5_delta.js
           node tests/test_v5_iv.js
+          node tests/test_v5_easy.js
       - name: Restore last published validated data
         run: |
           mkdir -p release/data
