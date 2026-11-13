@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'POGO_META_CHECKER_mobile_upload_20261113.zip'
+      - 'POGO_META_CHECKER_mobile_upload_20261113.zip.zip'
       - '.github/workflows/mobile-deploy.yml'
   workflow_dispatch:
   schedule:
@@ -34,7 +34,7 @@ jobs:
       - name: Extract app
         run: |
           mkdir -p release
-          unzip -q POGO_META_CHECKER_mobile_upload_20261113.zip -d release
+          unzip -q POGO_META_CHECKER_mobile_upload_20261113.zip.zip -d release
           test -f release/index.html
 
       - uses: actions/setup-python@v5
