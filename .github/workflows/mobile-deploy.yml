@@ -1,15 +1,15 @@
-
-name: POGO META Mobile Deploy
+name: POGO META v5 Change-Aware Deploy
 
 on:
   push:
     branches: [main]
     paths:
-      - 'POGO_META_CHECKER_mobile_upload_20261113.zip.zip'
+      - 'POGO_META_CHECKER_v5_mobile.zip'
       - '.github/workflows/mobile-deploy.yml'
   workflow_dispatch:
+  # Cheap daily source-change check, not a daily full Pokémon recalculation.
   schedule:
-    - cron: '27 2 * * *'
+    - cron: '17 4 * * *'
 
 permissions:
   contents: read
@@ -18,63 +18,79 @@ permissions:
 
 concurrency:
   group: pogo-meta-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Extract app
+      - name: Extract v5 source
         run: |
           mkdir -p release
-          unzip -q POGO_META_CHECKER_mobile_upload_20261113.zip.zip -d release
+          unzip -q POGO_META_CHECKER_v5_mobile.zip -d release
           test -f release/index.html
-
+          test -f release/scripts/v5_sync.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Test app
+      - name: Verify code
         working-directory: release
         run: |
           python -m unittest discover -s tests -v
           node tests/test_app.js
-
-      - name: Restore validated data
+          node tests/test_v5_delta.js
+      - name: Restore last published validated data
         run: |
-          curl -fsSL --retry 2 --max-time 30 \
-            "https://a01023582660-web.github.io/pogo-meta-checker/data/catalog.json" \
-            -o release/data/catalog.json \
-            || rm -f release/data/catalog.json
-
-      - name: Update Pokemon data
+          mkdir -p release/data
+          for file in catalog.json meta-index.json changes.json patch.json; do
+            curl --silent --show-error --fail --retry 2 --max-time 30 \
+              "https://a01023582660-web.github.io/pogo-meta-checker/data/$file" \
+              -o "release/data/$file" || rm -f "release/data/$file"
+          done
+      - uses: actions/cache/restore@v4
+        with:
+          path: release/.source-cache
+          key: pogo-v5-raw-${{ github.run_id }}
+          restore-keys: |
+            pogo-v5-raw-
+      - name: Poll upstream and refresh only when changed
+        id: monitor
         working-directory: release
         run: |
-          python scripts/update_data.py || echo "::warning::Data refresh failed"
-
-      - name: Prepare public files
+          python scripts/update_data.py
+          python - <<'PY'
+          import json,os
+          with open('data/meta-index.json', encoding='utf-8') as f: m=json.load(f)
+          cache_new = bool(m.get('changed_sources')) and m.get('monitor_status')=='verified'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'cache_new={str(cache_new).lower()}\n')
+          print('v5 monitor:',m.get('assessment'),m.get('monitor_status'),m.get('version'))
+          PY
+      - uses: actions/cache/save@v4
+        if: steps.monitor.outputs.cache_new == 'true'
+        with:
+          path: release/.source-cache
+          key: pogo-v5-raw-${{ github.run_id }}
+      - name: Stage public PWA with small metadata manifest
         run: |
           mkdir -p public/data public/icons public/licenses
           cp release/index.html release/app.js release/style.css release/sw.js release/manifest.webmanifest public/
           cp release/data/starter.js public/data/
-          cp release/icons/*.png public/icons/
-          cp release/licenses/* public/licenses/
-          if [ -s release/data/catalog.json ]; then
-            cp release/data/catalog.json public/data/
-          fi
-
+          cp release/icons/icon-192.png release/icons/icon-512.png public/icons/
+          cp release/licenses/PVPoke-LICENSE.txt public/licenses/
+          for file in catalog.json meta-index.json changes.json patch.json; do
+            if test -s "release/data/$file"; then cp "release/data/$file" public/data/; fi
+          done
+          test -s public/data/catalog.json
+          test -s public/data/meta-index.json
       - uses: actions/configure-pages@v5
-
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public
-
       - uses: actions/deploy-pages@v4
         id: deployment
