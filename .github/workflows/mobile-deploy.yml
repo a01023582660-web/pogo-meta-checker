@@ -1,0 +1,80 @@
+
+name: POGO META Mobile Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'POGO_META_CHECKER_mobile_upload_20261113.zip'
+      - '.github/workflows/mobile-deploy.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '27 2 * * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pogo-meta-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract app
+        run: |
+          mkdir -p release
+          unzip -q POGO_META_CHECKER_mobile_upload_20261113.zip -d release
+          test -f release/index.html
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test app
+        working-directory: release
+        run: |
+          python -m unittest discover -s tests -v
+          node tests/test_app.js
+
+      - name: Restore validated data
+        run: |
+          curl -fsSL --retry 2 --max-time 30 \
+            "https://a01023582660-web.github.io/pogo-meta-checker/data/catalog.json" \
+            -o release/data/catalog.json \
+            || rm -f release/data/catalog.json
+
+      - name: Update Pokemon data
+        working-directory: release
+        run: |
+          python scripts/update_data.py || echo "::warning::Data refresh failed"
+
+      - name: Prepare public files
+        run: |
+          mkdir -p public/data public/icons public/licenses
+          cp release/index.html release/app.js release/style.css release/sw.js release/manifest.webmanifest public/
+          cp release/data/starter.js public/data/
+          cp release/icons/*.png public/icons/
+          cp release/licenses/* public/licenses/
+          if [ -s release/data/catalog.json ]; then
+            cp release/data/catalog.json public/data/
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - uses: actions/deploy-pages@v4
+        id: deployment
